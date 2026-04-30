@@ -1,17 +1,20 @@
 {
-  "name": "backend",
+  "name": "database",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "cloudinary": "^2.10.0",
+    "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "firebase-admin": "^13.8.0"
+    "firebase-admin": "^13.8.0",
+    "multer": "^2.1.1"
   }
 }
